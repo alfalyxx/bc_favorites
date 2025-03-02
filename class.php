@@ -5,6 +5,7 @@ use Bitrix\Main\Engine\Contract\Controllerable;
 use Bitrix\Main\Engine\ActionFilter;
 use Bitrix\Main\Loader;
 use Bitrix\Main\Localization\Loc;
+use Bitrix\Main\Engine\CurrentUser;
 
 class CustomFavoritesComponent extends CBitrixComponent implements Controllerable
 {
@@ -22,18 +23,19 @@ class CustomFavoritesComponent extends CBitrixComponent implements Controllerabl
 
     public function toggleFavoriteAction($entity, $entityId, $action)
     {
-        global $USER;
+        if (!Loader::includeModule('highloadblock')) {
+            return ['success' => false, 'error' => Loc::getMessage('ALFA_FAVORITES_MODULE_NOT_LOADED')];
+        }
 
-        if (!$USER->IsAuthorized()) {
+        require_once __DIR__ . "/class/FavoriteManager.php";
+
+        $userId = CurrentUser::get()->getId();
+        if (!$userId) {
             return ['success' => false, 'error' => Loc::getMessage('ALFA_FAVORITES_USER_IS_NOT_AUTHORIZED')];
         }
 
-        if (!Loader::includeModule('highloadblock')) {
-            throw new SystemException("Модуль highloadblock не установлен.");
-        }
-        require_once __DIR__ . "/class/FavoriteManager.php";
+        FavoritesManager::init($this->arParams["CACHE_TIME"] ?? 3600);
 
-        $userId = $USER->GetID();
         $entityId = (int)$entityId;
 
         if ($action === "add") {
@@ -49,18 +51,20 @@ class CustomFavoritesComponent extends CBitrixComponent implements Controllerabl
 
     public function executeComponent()
     {
-        global $USER;
-
-        if (!$USER->IsAuthorized()) {
+        if (!Loader::includeModule('highloadblock')) {
             return;
         }
 
-        if (!Loader::includeModule('highloadblock')) {
-            throw new SystemException("Модуль highloadblock не установлен.");
-        }
         require_once __DIR__ . "/class/FavoriteManager.php";
 
-        $userId = $USER->GetID();
+        $userId = CurrentUser::get()->getId();
+        if (!$userId) {
+            return;
+        }
+
+        // Передаём CACHE_TIME в класс
+        FavoritesManager::init($this->arParams["CACHE_TIME"] ?? 3600);
+
         $entity = $this->arParams["ENTITY"];
         $entityId = (int)$this->arParams["ENTITY_ID"];
 

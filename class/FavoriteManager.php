@@ -4,16 +4,23 @@ if (!defined("B_PROLOG_INCLUDED") || B_PROLOG_INCLUDED !== true) die();
 use Bitrix\Main\Loader;
 use Bitrix\Highloadblock\HighloadBlockTable;
 use Bitrix\Main\SystemException;
+use Bitrix\Main\Localization\Loc;
+use Bitrix\Main\Data\Cache;
+
+Loc::loadMessages(__FILE__);
 
 class FavoritesManager
 {
     private static int $hlBlockId = 0;
     private static $entityDataClass = null;
+    private static int $cacheTime = 3600; // Значение по умолчанию
 
-    public static function init()
+    public static function init($cacheTime = 3600)
     {
+        self::$cacheTime = (int)$cacheTime;
+
         if (!Loader::includeModule('highloadblock')) {
-            throw new SystemException("Модуль highloadblock не установлен.");
+            throw new SystemException(Loc::getMessage("ALFA_FAVORITES_MODULE_NOT_INSTALLED"));
         }
 
         if (!self::$hlBlockId) {
@@ -22,10 +29,10 @@ class FavoritesManager
             ])->fetch();
 
             if (!$hlblock) {
-                throw new SystemException("HL-блок 'Favorites' не найден.");
+                throw new SystemException(Loc::getMessage("ALFA_FAVORITES_HLBLOCK_NOT_FOUND"));
             }
 
-            self::$hlBlockId = $hlblock['ID'];
+            self::$hlBlockId = (int)$hlblock['ID'];
         }
 
         if (!self::$entityDataClass) {
@@ -57,6 +64,10 @@ class FavoritesManager
             'UF_ENTITY_ID' => $entityId,
         ]);
 
+        if ($result->isSuccess()) {
+            self::clearCache($userId);
+        }
+
         return $result->isSuccess();
     }
 
@@ -77,6 +88,11 @@ class FavoritesManager
         }
 
         $result = self::$entityDataClass::delete($item['ID']);
+
+        if ($result->isSuccess()) {
+            self::clearCache($userId);
+        }
+
         return $result->isSuccess();
     }
 
@@ -84,30 +100,64 @@ class FavoritesManager
     {
         self::init();
 
-        return (bool)self::$entityDataClass::getList([
-            'filter' => [
-                '=UF_USER_ID' => $userId,
-                '=UF_ENTITY' => $entity,
-                '=UF_ENTITY_ID' => $entityId,
-            ],
-            'limit' => 1,
-        ])->fetch();
+        $cache = Cache::createInstance();
+        $cacheId = "favorite_{$userId}_{$entity}_{$entityId}";
+        $cacheDir = "/favorites/{$userId}";
+
+        if ($cache->initCache(self::$cacheTime, $cacheId, $cacheDir)) {
+            return $cache->getVars();
+        }
+
+        if ($cache->startDataCache()) {
+            $isFavorite = (bool)self::$entityDataClass::getList([
+                'filter' => [
+                    '=UF_USER_ID' => $userId,
+                    '=UF_ENTITY' => $entity,
+                    '=UF_ENTITY_ID' => $entityId,
+                ],
+                'limit' => 1,
+            ])->fetch();
+
+            $cache->endDataCache($isFavorite);
+            return $isFavorite;
+        }
+
+        return false;
     }
 
     public static function getUserFavorites($userId)
     {
         self::init();
 
-        $favorites = [];
-        $result = self::$entityDataClass::getList([
-            'filter' => ['=UF_USER_ID' => $userId],
-            'select' => ['UF_ENTITY', 'UF_ENTITY_ID']
-        ]);
+        $cache = Cache::createInstance();
+        $cacheId = "favorites_list_{$userId}";
+        $cacheDir = "/favorites/{$userId}";
 
-        while ($item = $result->fetch()) {
-            $favorites[$item['UF_ENTITY']][$item['UF_ENTITY_ID']] = true;
+        if ($cache->initCache(self::$cacheTime, $cacheId, $cacheDir)) {
+            return $cache->getVars();
         }
 
-        return $favorites;
+        if ($cache->startDataCache()) {
+            $favorites = [];
+            $result = self::$entityDataClass::getList([
+                'filter' => ['=UF_USER_ID' => $userId],
+                'select' => ['UF_ENTITY', 'UF_ENTITY_ID']
+            ]);
+
+            while ($item = $result->fetch()) {
+                $favorites[$item['UF_ENTITY']][$item['UF_ENTITY_ID']] = true;
+            }
+
+            $cache->endDataCache($favorites);
+            return $favorites;
+        }
+
+        return [];
+    }
+
+    private static function clearCache($userId)
+    {
+        $cacheDir = "/favorites/{$userId}";
+        Cache::createInstance()->cleanDir($cacheDir);
     }
 }

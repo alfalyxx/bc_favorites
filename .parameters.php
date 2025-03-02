@@ -67,6 +67,12 @@ $arComponentParameters = [
             "TYPE" => "STRING",
             "DEFAULT" => "#ff0000",
         ],
+        "CACHE_TIME" => [
+            "PARENT" => "CACHE_SETTINGS",
+            "NAME" => Loc::getMessage("ALFA_FAVORITES_CACHE_TIME"),
+            "TYPE" => "STRING",
+            "DEFAULT" => "3600"
+        ],
     ]
 ];
 
